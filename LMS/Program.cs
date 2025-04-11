@@ -24,11 +24,11 @@ public class Program
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<LMSIdentityDbContext>();
 
-        // Uncomment the below after scaffolding
-        /*
+        // Uncomment the below after scaffolding ... Uncommenting DONE
+        
         builder.Services.AddDbContext<LMSContext>( options =>
             options.UseMySql( builder.Configuration["LMS:LMSConnectionString"], ServerVersion.AutoDetect( builder.Configuration["LMS:LMSConnectionString"] ) ) );
-        */
+        
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
