@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
 using LMS.Models;
 using LMS.Models.LMSModels;
@@ -194,7 +195,65 @@ namespace LMS.Areas.Identity.Pages.Account
         /// <returns>The uID of the new user</returns>
         string CreateNewUser( string firstName, string lastName, DateTime DOB, string departmentAbbrev, string role )
         {
-            return "unknown";
+            // We use DateOnly for the date of birth so convert to DateOnly
+            DateOnly date = DateOnly.FromDateTime(DOB);
+
+            // Get all UIDs from the database
+            List<string> allUids = db.Students.Select(s => s.UId)
+                .Concat(db.Professors.Select(p => p.UId))
+                .Concat(db.Administrators.Select(a => a.UId))
+                .ToList();
+            // Get the maximum ID from the existing UIDs
+            int maxID = 0;
+            foreach (var uid in allUids)
+            {
+                if (int.TryParse(uid.Substring(1), out int num))  // Remove u from ID and parse to int
+                {
+                    if (num > maxID)
+                        maxID = num;
+                }
+            }
+            
+            string uniqueID = "u" + (maxID + 1).ToString("D7");
+
+            // Add new user according to role
+            switch (role)
+            {
+                case "Student":
+                    db.Students.Add(new Student
+                    {
+                        UId = uniqueID,
+                        FName = firstName,
+                        LName = lastName,
+                        Dob = date,
+                        Subject = departmentAbbrev
+                    });
+                    break;
+                case "Professor":
+                    db.Professors.Add(new Professor
+                    {
+                        UId = uniqueID,
+                        FName = firstName,
+                        LName = lastName,
+                        Dob = date,
+                        Subject = departmentAbbrev
+                    });
+                    break;
+                case "Administrator":
+                    db.Administrators.Add(new Administrator
+                    {
+                        UId = uniqueID,
+                        FName = firstName,
+                        LName = lastName,
+                        Dob = date
+                    });
+                    break;
+                default:
+                    throw new ArgumentException("Not a valid role: must be a Student, Professor, or an Administrator");
+            }
+
+            db.SaveChanges();
+            return uniqueID;
         }
 
         /*******End code to modify********/
