@@ -29,8 +29,9 @@ namespace LMS.Controllers
         /// </summary>
         /// <returns>The JSON array</returns>
         public IActionResult GetDepartments()
-        {            
-            return Json(null);
+        {
+            var departments = db.Departments.Select(d => new { d.Name, d.Subject }).ToList();
+            return Json(departments);
         }
 
 
@@ -47,8 +48,18 @@ namespace LMS.Controllers
         /// </summary>
         /// <returns>The JSON array</returns>
         public IActionResult GetCatalog()
-        {            
-            return Json(null);
+        {
+            var catalog = db.Departments.Select(d => new
+            {
+                subject = d.Subject,
+                dname = d.Name,
+                courses = d.Courses.Select(c => new
+                {
+                    number = c.Number,
+                    cname = c.Name
+                }).ToList()
+            }).ToList();
+            return Json(catalog);
         }
 
         /// <summary>
@@ -66,8 +77,23 @@ namespace LMS.Controllers
         /// <param name="number">The course number, as in 5530</param>
         /// <returns>The JSON array</returns>
         public IActionResult GetClassOfferings(string subject, int number)
-        {            
-            return Json(null);
+        {
+            var course = db.Courses.FirstOrDefault(c => c.Subject == subject && c.Number == number);
+            if (course == null)
+            {
+                return Json(null);
+            }
+            var offerings = course.Classes.Select(c => new
+            {
+                season = c.Season,
+                year = c.Year,
+                location = c.Location,
+                start = c.StartTime.ToString(@"hh\:mm\:ss"),
+                end = c.EndTime.ToString(@"hh\:mm\:ss"),
+                fname = c.ProfessorU.FName,
+                lname = c.ProfessorU.LName,
+            }).ToList();
+            return Json(offerings);
         }
 
         /// <summary>
