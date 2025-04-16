@@ -6,9 +6,10 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using LMS.Models.LMSModels;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 // For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
-[assembly: InternalsVisibleTo( "LMSControllerTests" )]
+[assembly: InternalsVisibleTo("LMSControllerTests")]
 namespace LMS.Controllers
 {
     public class CommonController : Controller
@@ -30,7 +31,13 @@ namespace LMS.Controllers
         /// <returns>The JSON array</returns>
         public IActionResult GetDepartments()
         {
-            var departments = db.Departments.Select(d => new { d.Name, d.Subject }).ToList();
+            var departments = db.Departments
+                        .Select(d => new
+                        {
+                            name = d.Name,
+                            subject = d.Subject
+                        })
+                        .ToArray();
             return Json(departments);
         }
 
@@ -53,12 +60,11 @@ namespace LMS.Controllers
             {
                 subject = d.Subject,
                 dname = d.Name,
-                courses = d.Courses.Select(c => new
-                {
-                    number = c.Number,
-                    cname = c.Name
-                }).ToList()
-            }).ToList();
+                courses = d.Courses
+                .Select(c => new { number = c.Number, cname = c.Name })
+                .ToArray()
+            })
+.ToArray();
             return Json(catalog);
         }
 
@@ -83,16 +89,18 @@ namespace LMS.Controllers
             {
                 return Json(null);
             }
-            var offerings = course.Classes.Select(c => new
-            {
-                season = c.Season,
-                year = c.Year,
-                location = c.Location,
-                start = c.StartTime.ToString(@"hh\:mm\:ss"),
-                end = c.EndTime.ToString(@"hh\:mm\:ss"),
-                fname = c.ProfessorU.FName,
-                lname = c.ProfessorU.LName,
-            }).ToList();
+            var offerings = course.Classes
+                      .Select(c => new
+                      {
+                          season = c.Season,
+                          year = c.Year,
+                          location = c.Location,
+                          start = c.StartTime.ToString(@"hh\:mm\:ss"),
+                          end = c.EndTime.ToString(@"hh\:mm\:ss"),
+                          fname = c.ProfessorU.FName,
+                          lname = c.ProfessorU.LName
+                      })
+                      .ToArray();
             return Json(offerings);
         }
 
@@ -109,8 +117,32 @@ namespace LMS.Controllers
         /// <param name="asgname">The name of the assignment in the category</param>
         /// <returns>The assignment contents</returns>
         public IActionResult GetAssignmentContents(string subject, int num, string season, int year, string category, string asgname)
-        {            
-            return Content("");
+        {
+            var cls = (from c in db.Classes
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
+                          && c.Season == season
+                          && c.Year == year
+                       select c)
+              .FirstOrDefault();
+            if (cls == null)
+                return Content("");
+
+            var ac = db.AssignmentCategories
+                       .FirstOrDefault(x => x.ClassId == cls.ClassId
+                                         && x.Name == category);
+            if (ac == null)
+                return Content("");
+
+            var a = db.Assignments
+                      .FirstOrDefault(x => x.AcId == ac.AcId
+                                        && x.Name == asgname);
+            if (a == null)
+                return Content("");
+
+
+            return Content(a.Contents);
         }
 
 
@@ -129,8 +161,38 @@ namespace LMS.Controllers
         /// <param name="uid">The uid of the student who submitted it</param>
         /// <returns>The submission text</returns>
         public IActionResult GetSubmissionText(string subject, int num, string season, int year, string category, string asgname, string uid)
-        {            
-            return Content("");
+        {
+            var cls = (from c in db.Classes
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
+                          && c.Season == season
+                          && c.Year == year
+                       select c)
+             .FirstOrDefault();
+            if (cls == null)
+                return Content("");
+
+            var ac = db.AssignmentCategories
+                       .FirstOrDefault(x => x.ClassId == cls.ClassId
+                                         && x.Name == category);
+            if (ac == null)
+                return Content("");
+
+            var a = db.Assignments
+                      .FirstOrDefault(x => x.AcId == ac.AcId
+                                        && x.Name == asgname);
+            if (a == null)
+                return Content("");
+
+            var sub = db.Submissions
+                        .FirstOrDefault(s => s.SId == uid
+                                          && s.AId == a.AId);
+            if (sub == null)
+                return Content("");
+
+            return Content(sub.Contents ?? "");
+
         }
 
 
@@ -151,7 +213,49 @@ namespace LMS.Controllers
         /// or an object containing {success: false} if the user doesn't exist
         /// </returns>
         public IActionResult GetUser(string uid)
-        {           
+        {
+            var admin = db.Administrators
+                  .FirstOrDefault(a => a.UId == uid);
+            if (admin != null)
+            {
+                return Json(new
+                {
+                    fname = admin.FName,
+                    lname = admin.LName,
+                    uid = admin.UId
+                });
+            }
+
+            // attempt Professor
+            var prof = db.Professors
+                         .Include(p => p.SubjectNavigation)
+                         .FirstOrDefault(p => p.UId == uid);
+            if (prof != null)
+            {
+                return Json(new
+                {
+                    fname = prof.FName,
+                    lname = prof.LName,
+                    uid = prof.UId,
+                    department = prof.SubjectNavigation.Name
+                });
+            }
+
+            // attempt Student
+            var student = db.Students
+                            .Include(s => s.SubjectNavigation)
+                            .FirstOrDefault(s => s.UId == uid);
+            if (student != null)
+            {
+                return Json(new
+                {
+                    fname = student.FName,
+                    lname = student.LName,
+                    uid = student.UId,
+                    department = student.SubjectNavigation.Name
+                });
+            }
+
             return Json(new { success = false });
         }
 

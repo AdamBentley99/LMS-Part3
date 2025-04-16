@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 // For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
-[assembly: InternalsVisibleTo( "LMSControllerTests" )]
+[assembly: InternalsVisibleTo("LMSControllerTests")]
 namespace LMS.Controllers
 {
     [Authorize(Roles = "Student")]
@@ -75,8 +75,25 @@ namespace LMS.Controllers
         /// <param name="uid">The uid of the student</param>
         /// <returns>The JSON array</returns>
         public IActionResult GetMyClasses(string uid)
-        {           
-            return Json(null);
+        {
+            var result = (from e in db.Enrollments
+                          where e.Student == uid
+                          join cls in db.Classes
+                            on e.ClassId equals cls.ClassId
+                          join crs in db.Courses
+                            on cls.CourseId equals crs.CourseId
+                          select new
+                          {
+                              subject = crs.Subject,
+                              number = crs.Number,
+                              name = crs.Name,
+                              season = cls.Season,
+                              year = cls.Year,
+                              grade = e.Grade
+                          })
+                 .ToArray();
+
+            return Json(result);
         }
 
         /// <summary>
@@ -94,8 +111,47 @@ namespace LMS.Controllers
         /// <param name="uid"></param>
         /// <returns>The JSON array</returns>
         public IActionResult GetAssignmentsInClass(string subject, int num, string season, int year, string uid)
-        {            
-            return Json(null);
+        {
+            var cls = (from c in db.Classes
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
+                          && c.Season == season
+                          && c.Year == year
+                       select c)
+              .FirstOrDefault();
+
+            if (cls == null)
+                return Json(new object[0]);
+
+            var assignments = from ac in db.AssignmentCategories
+                              where ac.ClassId == cls.ClassId
+                              join a in db.Assignments on ac.AcId equals a.AcId
+                              select new
+                              {
+                                  AId = a.AId,
+                                  aname = a.Name,
+                                  cname = ac.Name,
+                                  due = a.Due
+                              };
+
+            var query = from a in assignments
+                        join s in db.Submissions
+                          on new { Aid = a.AId, Sid = uid }
+                          equals new { Aid = s.AId, Sid = s.SId }
+                          into joined
+                        from sub in joined.DefaultIfEmpty()
+                        select new
+                        {
+                            aname = a.aname,
+                            cname = a.cname,
+                            due = a.due,
+                            score = sub != null
+                                      ? (int?)sub.Score
+                                      : null
+                        };
+
+            return Json(query.ToArray());
         }
 
 
@@ -119,8 +175,53 @@ namespace LMS.Controllers
         /// <returns>A JSON object containing {success = true/false}</returns>
         public IActionResult SubmitAssignmentText(string subject, int num, string season, int year,
           string category, string asgname, string uid, string contents)
-        {           
-            return Json(new { success = false });
+        {
+            var cls = (from c in db.Classes
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
+                          && c.Season == season
+                          && c.Year == year
+                       select c)
+              .FirstOrDefault();
+            if (cls == null)
+                return Json(new { success = false });
+
+            var ac = db.AssignmentCategories
+                       .FirstOrDefault(x => x.ClassId == cls.ClassId
+                                         && x.Name == category);
+            if (ac == null)
+                return Json(new { success = false });
+
+            var assignment = db.Assignments
+                               .FirstOrDefault(x => x.AcId == ac.AcId
+                                                 && x.Name == asgname);
+            if (assignment == null)
+                return Json(new { success = false });
+
+            var existing = db.Submissions
+                             .FirstOrDefault(s => s.SId == uid
+                                               && s.AId == assignment.AId);
+            if (existing != null)
+            {
+                existing.Contents = contents;
+                existing.Time = DateTime.Now;
+            }
+            else
+            {
+                var sub = new Submission
+                {
+                    SId = uid,
+                    AId = assignment.AId,
+                    Contents = contents,
+                    Time = DateTime.Now,
+                    Score = 0
+                };
+                db.Submissions.Add(sub);
+            }
+
+            db.SaveChanges();
+            return Json(new { success = true });
         }
 
 
@@ -135,8 +236,34 @@ namespace LMS.Controllers
         /// <returns>A JSON object containing {success = {true/false}. 
         /// false if the student is already enrolled in the class, true otherwise.</returns>
         public IActionResult Enroll(string subject, int num, string season, int year, string uid)
-        {          
-            return Json(new { success = false});
+        {
+            var cls = (from c in db.Classes
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
+                          && c.Season == season
+                          && c.Year == year
+                       select c)
+             .FirstOrDefault();
+            if (cls == null)
+                return Json(new { success = false });
+
+            bool exists = db.Enrollments
+                            .Any(e => e.Student == uid
+                                   && e.ClassId == cls.ClassId);
+            if (exists)
+                return Json(new { success = false });
+
+            var enrol = new Enrollment
+            {
+                Student = uid,
+                ClassId = cls.ClassId,
+                Grade = "--"
+            };
+            db.Enrollments.Add(enrol);
+            db.SaveChanges();
+
+            return Json(new { success = true });
         }
 
 
@@ -153,10 +280,33 @@ namespace LMS.Controllers
         /// <param name="uid">The uid of the student</param>
         /// <returns>A JSON object containing a single field called "gpa" with the number value</returns>
         public IActionResult GetGPA(string uid)
-        {            
-            return Json(null);
+        {
+            var grades = db.Enrollments
+                           .Where(e => e.Student == uid
+                                    && e.Grade != "--")
+                           .Select(e => e.Grade)
+                           .ToArray();
+            if (!grades.Any())
+                return Json(new { gpa = 0.0 });
+
+            var scale = new Dictionary<string, double> {
+        {"A",4.0}, {"A-",3.7},
+        {"B+",3.3},{"B",3.0},{"B-",2.7},
+        {"C+",2.3},{"C",2.0},{"C-",1.7},
+        {"D+",1.3},{"D",1.0},{"D-",0.7},
+        {"E",0.0}
+    };
+
+            var points = grades
+                           .Where(g => scale.ContainsKey(g))
+                           .Select(g => scale[g]);
+            if (!points.Any())
+                return Json(new { gpa = 0.0 });
+
+            double gpa = points.Average();
+            return Json(new { gpa });
         }
-                
+
         /*******End code to modify********/
 
     }
