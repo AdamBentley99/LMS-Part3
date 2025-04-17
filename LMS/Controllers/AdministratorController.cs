@@ -102,12 +102,8 @@ namespace LMS.Controllers
                 .Where(p => p.Subject == subject)
                 .Select(p => new { lname = p.LName, fname = p.FName, uid = p.UId })
                 .ToList();
-            if (professors.Any())
-            {
-                return Json(professors);
-            }
 
-            return Json(new { success = false });
+                return Json(professors);
 
         }
 

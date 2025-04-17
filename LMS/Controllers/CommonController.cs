@@ -64,7 +64,7 @@ namespace LMS.Controllers
                 .Select(c => new { number = c.Number, cname = c.Name })
                 .ToArray()
             })
-.ToArray();
+            .ToArray();
             return Json(catalog);
         }
 
@@ -89,18 +89,22 @@ namespace LMS.Controllers
             {
                 return Json(null);
             }
-            var offerings = course.Classes
-                      .Select(c => new
-                      {
-                          season = c.Season,
-                          year = c.Year,
-                          location = c.Location,
-                          start = c.StartTime.ToString(@"hh\:mm\:ss"),
-                          end = c.EndTime.ToString(@"hh\:mm\:ss"),
-                          fname = c.ProfessorU.FName,
-                          lname = c.ProfessorU.LName
-                      })
-                      .ToArray();
+            var offerings = db.Classes
+                .Include(c => c.Course)
+                .Include(c => c.ProfessorU)
+                .Where(c => c.Course.Subject == subject && c.Course.Number == number)
+                .Select(c => new
+                {
+                    season = c.Season,
+                    year = c.Year,
+                    location = c.Location,
+                    start = c.StartTime.ToString("HH:mm:ss"),
+                    end = c.EndTime.ToString("HH:mm:ss"),
+                    fname = c.ProfessorU.FName,
+                    lname = c.ProfessorU.LName
+                })
+                .ToArray();
+
             return Json(offerings);
         }
 

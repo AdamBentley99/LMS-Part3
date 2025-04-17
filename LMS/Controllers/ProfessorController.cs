@@ -140,7 +140,7 @@ namespace LMS_CustomIdentity.Controllers
                               dob = st.Dob,
                               grade = e.Grade
                           })
-                         .ToArray;
+                         .ToArray();
 
             return Json(result);
         }
@@ -165,41 +165,37 @@ namespace LMS_CustomIdentity.Controllers
         /// <returns>The JSON array</returns>
         public IActionResult GetAssignmentsInCategory(string subject, int num, string season, int year, string category)
         {
-
             var cls = (from c in db.Classes
                        join crs in db.Courses on c.CourseId equals crs.CourseId
                        where crs.Subject == subject
                           && crs.Number == num
                           && c.Season == season
                           && c.Year == year
-                       select c)
-                      .FirstOrDefault();
+                       select c).FirstOrDefault();
+
             if (cls == null)
                 return Json(new object[0]);
 
+            // Query only the base assignment info from EF
+            var baseQuery = (from ac in db.AssignmentCategories
+                             where ac.ClassId == cls.ClassId
+                                && (category == null || ac.Name == category)
+                             join a in db.Assignments on ac.AcId equals a.AcId
+                             select new
+                             {
+                                 a.AId,
+                                 aname = a.Name,
+                                 cname = ac.Name,
+                                 due = a.Due
+                             }).ToList();
 
-            var baseQuery = from ac in db.AssignmentCategories
-                            where ac.ClassId == cls.ClassId
-                               && (category == null || ac.Name == category)
-                            join a in db.Assignments on ac.AcId equals a.AcId
-                            select new
-                            {
-                                a.AId,
-                                aname = a.Name,
-                                cname = ac.Name,
-                                due = a.Due
-                            };
-
-            var result = baseQuery
-                .AsEnumerable()
-                .Select(a => new
-                {
-                    aname = a.aname,
-                    cname = a.cname,
-                    due = a.due,
-                    submissions = db.Submissions.Count(s => s.AId == a.AId)
-                })
-                .ToArray;
+            var result = baseQuery.Select(a => new
+            {
+                aname = a.aname,
+                cname = a.cname,
+                due = a.due,
+                submissions = db.Submissions.Count(s => s.AId == a.AId)
+            }).ToArray();
 
             return Json(result);
         }
@@ -237,7 +233,7 @@ namespace LMS_CustomIdentity.Controllers
                                name = ac.Name,
                                weight = ac.Weight
                            })
-                           .ToArray;
+                           .ToArray();
 
             return Json(result);
         }
@@ -390,7 +386,7 @@ namespace LMS_CustomIdentity.Controllers
                               time = s.Time,
                               score = s.Score
                           })
-                         .ToArray;
+                         .ToArray();
 
             return Json(result);
         }
@@ -463,7 +459,7 @@ namespace LMS_CustomIdentity.Controllers
                               season = cls.Season,
                               year = cls.Year
                           })
-                 .ToArray;
+                 .ToArray();
 
             return Json(result);
         }
