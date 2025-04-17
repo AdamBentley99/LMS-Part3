@@ -281,6 +281,69 @@ namespace LMS_CustomIdentity.Controllers
         }
 
         /// <summary>
+        /// Private helper method in order to recalculate the grade
+        /// </summary>
+        /// <param name="classId">classID for which grade</param>
+        /// <param name="studentUid">the student uid of the grade</param>
+        private void RecalculateStudentGrade(int classId, string studentUid)
+        {
+            var categories = db.AssignmentCategories
+                               .Where(ac => ac.ClassId == classId)
+                               .ToList();
+
+            double totalWeight = 0;
+            foreach (var ac in categories)
+            {
+                bool hasAny = db.Assignments.Any(a => a.AcId == ac.AcId);
+                if (hasAny) totalWeight += ac.Weight;
+            }
+            if (totalWeight == 0) return;
+
+            double rawScore = 0;
+            foreach (var ac in categories)
+            {
+                var assigns = db.Assignments
+                                .Where(a => a.AcId == ac.AcId)
+                                .ToList();
+                if (!assigns.Any()) continue;
+
+                double maxPts = assigns.Sum(a => (double)a.Points);
+                double earnedPts = assigns.Sum(a =>
+                {
+                    var sub = db.Submissions
+                                .FirstOrDefault(s => s.SId == studentUid && s.AId == a.AId);
+                    return sub != null ? (double)sub.Score : 0.0;
+                });
+
+                rawScore += (earnedPts / maxPts) * ac.Weight;
+            }
+
+            double classPct = rawScore * (100.0 / totalWeight);
+            string letter;
+            if (classPct >= 93) letter = "A";
+            else if (classPct >= 90) letter = "A-";
+            else if (classPct >= 87) letter = "B+";
+            else if (classPct >= 83) letter = "B";
+            else if (classPct >= 80) letter = "B-";
+            else if (classPct >= 77) letter = "C+";
+            else if (classPct >= 73) letter = "C";
+            else if (classPct >= 70) letter = "C-";
+            else if (classPct >= 67) letter = "D+";
+            else if (classPct >= 63) letter = "D";
+            else if (classPct >= 60) letter = "D-";
+            else letter = "E";
+
+            var enroll = db.Enrollments
+                           .FirstOrDefault(e => e.ClassId == classId && e.Student == studentUid);
+            if (enroll != null)
+            {
+                enroll.Grade = letter;
+                db.SaveChanges();
+            }
+        }
+
+
+        /// <summary>
         /// Creates a new assignment for the given class and category.
         /// </summary>
         /// <param name="subject">The course subject abbreviation</param>
@@ -296,27 +359,22 @@ namespace LMS_CustomIdentity.Controllers
         public IActionResult CreateAssignment(string subject, int num, string season, int year, string category, string asgname, int asgpoints, DateTime asgdue, string asgcontents)
         {
             var cls = (from c in db.Classes
-                       join crs in db.Courses on c.CourseId equals crs.CourseId
-                       where crs.Subject == subject
-                          && crs.Number == num
+                       join cr in db.Courses on c.CourseId equals cr.CourseId
+                       where cr.Subject == subject
+                          && cr.Number == num
                           && c.Season == season
                           && c.Year == year
                        select c)
-             .FirstOrDefault();
-            if (cls == null)
-                return Json(new { success = false });
+                      .FirstOrDefault();
+            if (cls == null) return Json(new { success = false });
 
             var ac = db.AssignmentCategories
-                       .FirstOrDefault(x => x.ClassId == cls.ClassId
-                                         && x.Name == category);
-            if (ac == null)
-                return Json(new { success = false });
+                       .FirstOrDefault(x => x.ClassId == cls.ClassId && x.Name == category);
+            if (ac == null) return Json(new { success = false });
 
-            bool duplicate = db.Assignments
-                               .Any(a => a.AcId == ac.AcId
-                                      && a.Name == asgname);
-            if (duplicate)
-                return Json(new { success = false });
+            bool exists = db.Assignments
+                            .Any(a => a.AcId == ac.AcId && a.Name == asgname);
+            if (exists) return Json(new { success = false });
 
             var a = new Assignment
             {
@@ -328,6 +386,14 @@ namespace LMS_CustomIdentity.Controllers
             };
             db.Assignments.Add(a);
             db.SaveChanges();
+
+            var studentUids = db.Enrollments
+                               .Where(e => e.ClassId == cls.ClassId)
+                               .Select(e => e.Student)
+                               .ToList();
+
+            foreach (var sid in studentUids)
+                RecalculateStudentGrade(cls.ClassId, sid);
 
             return Json(new { success = true });
         }
@@ -406,15 +472,11 @@ namespace LMS_CustomIdentity.Controllers
         /// <returns>A JSON object containing success = true/false</returns>
         public IActionResult GradeSubmission(string subject, int num, string season, int year, string category, string asgname, string uid, int score)
         {
-            var sub = (from s in db.Submissions
-                       join a in db.Assignments
-                         on s.AId equals a.AId
-                       join ac in db.AssignmentCategories
-                         on a.AcId equals ac.AcId
-                       join cl in db.Classes
-                         on ac.ClassId equals cl.ClassId
-                       join cr in db.Courses
-                         on cl.CourseId equals cr.CourseId
+            var hit = (from s in db.Submissions
+                       join a in db.Assignments on s.AId equals a.AId
+                       join ac in db.AssignmentCategories on a.AcId equals ac.AcId
+                       join cl in db.Classes on ac.ClassId equals cl.ClassId
+                       join cr in db.Courses on cl.CourseId equals cr.CourseId
                        where s.SId == uid
                           && a.Name == asgname
                           && ac.Name == category
@@ -422,15 +484,17 @@ namespace LMS_CustomIdentity.Controllers
                           && cl.Year == year
                           && cr.Number == num
                           && cr.Subject == subject
-                       select s)
+                       select new { Submission = s, ClassId = cl.ClassId })
               .FirstOrDefault();
 
-            if (sub == null)
+            if (hit == null)
                 return Json(new { success = false });
 
-            // update the score
-            sub.Score = (uint)score;
+            hit.Submission.Score = (uint)score;
             db.SaveChanges();
+
+            RecalculateStudentGrade(hit.ClassId, uid);
+
             return Json(new { success = true });
         }
 
